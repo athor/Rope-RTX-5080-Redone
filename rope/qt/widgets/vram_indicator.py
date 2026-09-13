@@ -18,13 +18,15 @@ class VRAMIndicator(QProgressBar):
         self.setAlignment(Qt.AlignCenter)
         self.setProperty("overLimit", "false")
 
-    def set(self, used_gb: float, total_gb: float) -> None:
-        if total_gb <= 0:
+    def set(self, used_mib: float, total_mib: float) -> None:
+        if total_mib <= 0:
             pct = 0.0
         else:
-            pct = max(0.0, min(100.0, (float(used_gb) / float(total_gb)) * 100.0))
+            pct = max(0.0, min(100.0, (float(used_mib) / float(total_mib)) * 100.0))
+        used_gib = float(used_mib) / 1024.0
+        total_gib = float(total_mib) / 1024.0
         self.setValue(int(round(pct)))
-        self.setFormat(f"VRAM {used_gb:.1f}/{total_gb:.1f} GB ({pct:.0f}%)")
+        self.setFormat(f"VRAM {used_gib:.1f} / {total_gib:.1f} GB - {pct:.0f}%")
         over = pct >= 90.0
         self.setProperty("overLimit", "true" if over else "false")
         self.style().unpolish(self); self.style().polish(self)

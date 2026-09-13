@@ -38,8 +38,8 @@ class Settings:
     # symlinks.
     models_folder: str | None = None
     dock_win_geom: list[int] = field(default_factory=lambda: [1600, 950, 100, 80])
-    splitter_main_sizes: list[int] = field(default_factory=lambda: [340, 880, 380])
-    splitter_left_sizes: list[int] = field(default_factory=lambda: [500, 400])
+    splitter_main_sizes: list[int] = field(default_factory=lambda: [520, 700, 380])
+    splitter_left_sizes: list[int] = field(default_factory=lambda: [255, 255])
     # Vertical split inside the center pane: [top half (video + chrome +
     # found-faces), embeddings]. Drag handle lives between Found Faces
     # and Embeddings.
@@ -81,8 +81,8 @@ class Settings:
             merged_embeddings_file=raw.get("merged_embeddings_file"),
             models_folder=raw.get("models_folder"),
             dock_win_geom=list(raw.get("dock_win_geom", [1600, 950, 100, 80])),
-            splitter_main_sizes=list(raw.get("splitter_main_sizes", [340, 880, 380])),
-            splitter_left_sizes=list(raw.get("splitter_left_sizes", [500, 400])),
+            splitter_main_sizes=list(raw.get("splitter_main_sizes", [520, 700, 380])),
+            splitter_left_sizes=list(raw.get("splitter_left_sizes", [255, 255])),
             splitter_center_sizes=list(raw.get("splitter_center_sizes", [700, 180])),
             params_collapsed=params_collapsed,
             model_backends=model_backends,

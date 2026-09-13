@@ -87,6 +87,7 @@ class Coordinator(QObject):
         bus.vid_qual.connect(self._on_vid_qual)
         bus.set_stop.connect(self._on_set_stop)
         bus.perf_test.connect(self._on_perf_test)
+        bus.audio_volume_changed.connect(vm.set_audio_volume)
 
     @Slot(int)
     def _on_scrub_with_markers(self, frame: int):

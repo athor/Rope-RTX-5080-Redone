@@ -17,6 +17,7 @@ import numpy as np
 _CACHE_ROOT = os.path.join(os.getcwd(), 'cache')
 _FACE_DIR = os.path.join(_CACHE_ROOT, 'faces')
 _MEDIA_DIR = os.path.join(_CACHE_ROOT, 'media')
+_FACE_CACHE_VERSION = 3
 
 
 def _ensure_dirs():
@@ -37,7 +38,7 @@ def _media_path(path):
 
 
 def _atomic_savez(target, **arrays):
-    tmp = target + '.tmp'
+    tmp = target + '.tmp.npz'
     try:
         np.savez(tmp, **arrays)
         os.replace(tmp, target)
@@ -60,6 +61,8 @@ def load_face(path):
     try:
         with np.load(cache_file) as npz:
             if float(npz['mtime']) != src_mtime:
+                return None
+            if int(npz.get('version', 0)) != _FACE_CACHE_VERSION:
                 return None
             return npz['thumbnail'].copy(), npz['embedding'].copy()
     except Exception:
@@ -84,6 +87,22 @@ def load_media(path):
         return None
 
 
+def store_face(path, thumbnail, embedding):
+    """Persist an aligned source-face crop and its recognition embedding."""
+    _ensure_dirs()
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return
+    _atomic_savez(
+        _face_path(path),
+        version=np.int32(_FACE_CACHE_VERSION),
+        mtime=np.float64(mtime),
+        thumbnail=np.ascontiguousarray(thumbnail, dtype=np.uint8),
+        embedding=np.ascontiguousarray(embedding, dtype=np.float32),
+    )
+
+
 def store_media(path, thumbnail):
     _ensure_dirs()
     try:
@@ -95,5 +114,3 @@ def store_media(path, thumbnail):
         mtime=np.float64(mtime),
         thumbnail=np.ascontiguousarray(thumbnail),
     )
-
-

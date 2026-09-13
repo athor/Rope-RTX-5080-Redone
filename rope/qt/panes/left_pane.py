@@ -49,7 +49,9 @@ from rope.qt.widgets.text import Text
 
 
 _ICON_SIZE = 96     # logical icon box
-_GRID_SIZE = QSize(108, 122)  # cell on the icon-mode grid
+# Keep two tiles per Pearl-style column while reserving enough height for
+# two wrapped filename lines below the 96 px thumbnail.
+_GRID_SIZE = QSize(112, 148)
 
 
 def _rgb_to_icon(rgb: np.ndarray) -> QIcon:
@@ -266,6 +268,16 @@ class _ThumbListMixin:
         icon = _rgb_to_icon(thumb)
         if not icon.isNull():
             item.setIcon(icon)
+
+    def paths(self) -> list[str]:
+        return [
+            str(self.list.item(i).data(Qt.UserRole))
+            for i in range(self.list.count())
+            if self.list.item(i).data(Qt.UserRole)
+        ]
+
+    def set_thumbnail(self, path: str, thumb) -> None:
+        self._on_thumb_ready(path, thumb, 0)
 
     def set_selected_paths(self, paths) -> None:
         """Drive the list's *native* selection state from an external

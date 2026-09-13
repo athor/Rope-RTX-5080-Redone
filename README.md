@@ -1,58 +1,121 @@
-<img width="2343" height="1375" alt="Screenshot 2026-07-11 132434" src="https://github.com/user-attachments/assets/abb3cfe1-9ec6-4ce5-b8fe-8c9de7a45294" />
+# Rope RTX 5080 Redone
 
-Rope implements the insightface inswapper_128 model with a helpful GUI.
-### [Discord](https://discord.gg/EcdVAFJzqp)
+Windows-focused fork of [Hillobar/Rope](https://github.com/Hillobar/Rope), based on the `Rope-Bronze` branch.
 
-### [Donate](https://www.paypal.com/donate/?hosted_button_id=Y5SB9LSXFGRF2)
+This fork improves RTX 50-series compatibility, restores the practical Pearl-style media layout, adds persistent face-thumbnail caching, modernizes the controls and fixes several Windows stability and usability issues.
 
-### ${{\color{Goldenrod}{\textsf{Last Updated 2026-07-11}}}}$ ###
-### ${{\color{Goldenrod}{\textsf{Welcome to Rope-Bronze!}}}}$ ###
+## Main changes
 
-### Updates for Rope-Bronze: ###
-* New, more responsive UI
-* TRT Engine for better performance
-* Batched inswapper for better 256 and 512 mode performance
-* Settings tab for managing folders, models threading, benchmarking, ...
-* New Likeness / Fidelity settings
-* Color Matching (LAB) for accureate color matching
-* XSeg masker
-* Easier Embedding management. Drag and drop embeddings to reorder them.
-* New Capture mode. Move and resize a window on your desktop to swap whatever is in it.
+- Pearl-style side-by-side **Videos** and **Faces** columns.
+- Automatic source-face detection, wider head crops and persistent thumbnail/embedding cache.
+- Safer Windows video playback after native `PyNvVideoCodec` crashes.
+- Functional audio volume control.
+- Clear active states for **Swap Faces** and **Enable Audio**.
+- Improved action buttons, tabs, labels, VRAM display and sliders.
+- Working JSON file picker for **Load Params**.
+- RTX 50-series compatible Python/PyTorch/CUDA dependency stack.
 
-### Install from scratch:
-```cmd
+See [CHANGELOG.md](CHANGELOG.md) for details.
+
+## Simple Windows installation
+
+### 1. Requirements
+
+- Windows 10 or 11
+- NVIDIA graphics driver installed and up to date
+- [Git for Windows](https://git-scm.com/download/win)
+- [Python 3.12 (64-bit)](https://www.python.org/downloads/)
+
+During Python installation, enable **Add Python to PATH**.
+
+### 2. Download this fork
+
+Open Command Prompt and run:
+
+```bat
+cd /d C:\ai
+git clone -b codex/rope-bronze-improvements https://github.com/athor/Rope-RTX-5080-Redone.git "Rope RTX 5080 Redone"
+cd /d "C:\ai\Rope RTX 5080 Redone"
+```
+
+You may replace `C:\ai` with another folder.
+
+### 3. Create the Python environment
+
+```bat
 py -3.12 -m venv venv
-```
-```cmd
-venv\Scripts\activate
-```
-```cmd
+call venv\Scripts\activate.bat
+python -m pip install --upgrade pip
 pip install -r requirements.lock.txt
 ```
-Also, copy models from the Rope-Bronze Models Release to somewhere on your drive. In settings, select the folder they were copied to (you have to unzip them).
 
-### Disclaimer: ###
-Rope is a personal project that I'm making available to the community as a thank you for all of the contributors ahead of me.
-I've copied the disclaimer from [Swap-Mukham](https://github.com/harisreedhar/Swap-Mukham) here since it is well-written and applies 100% to this repo.
- 
-I would like to emphasize that our swapping software is intended for responsible and ethical use only. I must stress that users are solely responsible for their actions when using our software.
+The dependency lock installs the CUDA-enabled PyTorch build required by this branch. A separate CUDA Toolkit installation is normally unnecessary; the NVIDIA driver is still required.
 
-Intended Usage: This software is designed to assist users in creating realistic and entertaining content, such as movies, visual effects, virtual reality experiences, and other creative applications. I encourage users to explore these possibilities within the boundaries of legality, ethical considerations, and respect for others' privacy.
+### 4. Install the models
 
-Ethical Guidelines: Users are expected to adhere to a set of ethical guidelines when using our software. These guidelines include, but are not limited to:
+1. Download the Rope-Bronze model archive from the [official Rope releases](https://github.com/Hillobar/Rope/releases).
+2. Extract it.
+3. Put the model files inside:
 
-Not creating or sharing content that could harm, defame, or harass individuals. Obtaining proper consent and permissions from individuals featured in the content before using their likeness. Avoiding the use of this technology for deceptive purposes, including misinformation or malicious intent. Respecting and abiding by applicable laws, regulations, and copyright restrictions.
+```text
+C:\ai\Rope RTX 5080 Redone\models
+```
 
-Privacy and Consent: Users are responsible for ensuring that they have the necessary permissions and consents from individuals whose likeness they intend to use in their creations. We strongly discourage the creation of content without explicit consent, particularly if it involves non-consensual or private content. It is essential to respect the privacy and dignity of all individuals involved.
+The folder must directly contain files such as `det_10g.onnx`, `w600k_r50.onnx` and `inswapper_128.fp16.onnx`, not another nested `models` folder.
 
-Legal Considerations: Users must understand and comply with all relevant local, regional, and international laws pertaining to this technology. This includes laws related to privacy, defamation, intellectual property rights, and other relevant legislation. Users should consult legal professionals if they have any doubts regarding the legal implications of their creations.
+You can also keep the models elsewhere and select that directory under **Settings → Models Folder**.
 
-Liability and Responsibility: We, as the creators and providers of the deep fake software, cannot be held responsible for the actions or consequences resulting from the usage of our software. Users assume full liability and responsibility for any misuse, unintended effects, or abusive behavior associated with the content they create.
+### 5. Start Rope
 
-By using this software, users acknowledge that they have read, understood, and agreed to abide by the above guidelines and disclaimers. We strongly encourage users to approach this technology with caution, integrity, and respect for the well-being and rights of others.
+Double-click `Rope.bat`, or run:
 
-Remember, technology should be used to empower and inspire, not to harm or deceive. Let's strive for ethical and responsible use of deep fake technology for the betterment of society.
+```bat
+call venv\Scripts\activate.bat
+python Rope.py
+```
 
+The first face-folder load builds a local cache and can take a little while. Later launches reuse it and are much faster.
 
+## Basic workflow
 
-  
+1. Pick a target video or image in the **Videos** column.
+2. Pick the source portraits in the **Faces** column.
+3. Click **Find Faces**.
+4. Select a detected target face and assign the desired source face.
+5. Enable **Swap Faces** and press Play.
+
+## Troubleshooting
+
+### `No module named torch`
+
+Activate the environment and install its dependencies:
+
+```bat
+call venv\Scripts\activate.bat
+pip install -r requirements.lock.txt
+```
+
+### `venv\Scripts\activate.bat` is not recognized
+
+Run the commands from the repository folder, or recreate the environment:
+
+```bat
+py -3.12 -m venv venv
+```
+
+### Models are missing
+
+Extract the official model archive into `models`, or choose its location under **Settings → Models Folder**.
+
+### First face scan is slow
+
+This is expected while the detector and source-face cache initialize. Subsequent scans and launches should be considerably faster.
+
+## Credits
+
+- Original project: [Hillobar/Rope](https://github.com/Hillobar/Rope)
+- This fork keeps the original project history and remains based on Rope-Bronze.
+
+## Disclaimer and responsible use
+
+Use this software only with the necessary rights and consent. Do not create deceptive, defamatory, harmful or non-consensual content. Users are solely responsible for complying with privacy, intellectual-property and other applicable laws. This software is provided without warranty, and its authors or contributors cannot be held responsible for misuse or resulting consequences.

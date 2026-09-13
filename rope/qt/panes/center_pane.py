@@ -38,6 +38,7 @@ from rope.qt.widgets.button import IconButton
 from rope.qt.widgets.embeddings_pane import EmbeddingsPane
 from rope.qt.widgets.face_gallery import FaceGallery
 from rope.qt.widgets.preview import PreviewWidget
+from rope.qt.widgets.slider import DefaultAwareSlider
 from rope.qt.widgets.text_selection import TextSelection
 from rope.qt.widgets.timeline import Timeline
 
@@ -84,6 +85,7 @@ class CenterPane(QFrame):
     clear_faces_pressed = Signal()
     toggle_swap_faces = Signal()
     preload_pressed = Signal()
+    volume_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -151,14 +153,15 @@ class CenterPane(QFrame):
     # ---- Toggle row --------------------------------------------------------------
 
     def _build_toggle_row(self) -> QFrame:
-        row = _tier(3); row.setFixedHeight(28)
-        lay = QHBoxLayout(row); lay.setContentsMargins(4, 2, 4, 2); lay.setSpacing(6)
+        row = _tier(3); row.setFixedHeight(42)
+        lay = QHBoxLayout(row); lay.setContentsMargins(8, 5, 8, 5); lay.setSpacing(8)
 
         # Preload Models sits at the far left of the toggle row (left of
         # Audio). Model preload is manual — clicking builds the pipeline
         # sessions for the current selections + thread count; the host
         # (main_window) flips this button's text/color as they load.
         preload_btn = QPushButton("Preload Models")
+        preload_btn.setProperty("role", "topAction")
         preload_btn.setCursor(Qt.PointingHandCursor)
         preload_btn.setToolTip(
             "Build the swap-pipeline sessions (detector, recognizer, "
@@ -170,14 +173,10 @@ class CenterPane(QFrame):
         self.buttons["PreloadModelsButton"] = preload_btn
         lay.addWidget(preload_btn)
 
-        self.buttons["AudioButton"] = IconButton(
-            PARAMETER_BY_NAME["Audio"], callback=lambda *_: self.toggle_audio.emit()
-        )
-        lay.addWidget(self.buttons["AudioButton"])
-
         self.buttons["MaskViewButton"] = IconButton(
             PARAMETER_BY_NAME["MaskView"], callback=lambda *_: self.toggle_mask_view.emit()
         )
+        self.buttons["MaskViewButton"].setProperty("role", "topAction")
         lay.addWidget(self.buttons["MaskViewButton"])
 
         self.preview_mode = TextSelection(PARAMETER_BY_NAME["PreviewModeTextSel"])
@@ -185,6 +184,15 @@ class CenterPane(QFrame):
         lay.addWidget(self.preview_mode, stretch=1)
 
         return row
+
+    def _on_volume_changed(self, value: int) -> None:
+        value = max(0, min(100, int(value)))
+        icon = "🔇" if value == 0 else ("🔉" if value < 50 else "🔊")
+        tip = f"Playback volume: {value}%"
+        self.volume_icon.setText(icon)
+        self.volume_icon.setToolTip(tip)
+        self.volume_slider.setToolTip(tip)
+        self.volume_changed.emit(value)
 
     # ---- Preview placeholder -----------------------------------------------------
 
@@ -243,11 +251,11 @@ class CenterPane(QFrame):
 
     def _build_found_faces_pane(self) -> QFrame:
         # One tier-3 QFrame holding the "Found Faces" header (title +
-        # Find / Clear buttons) and the FaceGallery directly below it
+        # title) and the FaceGallery directly below it
         # — same single-surface layout used by EmbeddingsPane, so
         # there's no visible seam between the title row and the
-        # thumbnail strip. SwapFaces lives in the media row, not
-        # here.
+        # thumbnail strip. The four face actions live together in the
+        # media row immediately above this pane.
         frame = QFrame()
         frame.setProperty("panelTier", "3")
         outer = QVBoxLayout(frame)
@@ -261,16 +269,6 @@ class CenterPane(QFrame):
         title.setStyleSheet("font-weight: bold;")
         header.addWidget(title)
         header.addStretch()
-
-        find_btn = QPushButton("Find Faces")
-        find_btn.clicked.connect(lambda *_: self.find_faces_pressed.emit())
-        self.buttons["FindFacesButton"] = find_btn
-        header.addWidget(find_btn)
-
-        clear_btn = QPushButton("Clear Faces")
-        clear_btn.clicked.connect(lambda *_: self.clear_faces_pressed.emit())
-        self.buttons["ClearFacesButton"] = clear_btn
-        header.addWidget(clear_btn)
 
         outer.addLayout(header)
         outer.addWidget(self.found_faces_gallery, stretch=1)
@@ -296,18 +294,51 @@ class CenterPane(QFrame):
         row = _tier(3); row.setFixedHeight(44)
         outer = QHBoxLayout(row); outer.setContentsMargins(4, 4, 4, 4); outer.setSpacing(8)
 
-        # Left side: SwapFaces toggle, then Save Image. SwapFaces moved
-        # here from the faces row so it lives with the per-frame
-        # transport controls — its on/off state is what gates swap
-        # rendering during play.
+        # Four explicit face actions, in workflow order.
+        find_btn = QPushButton("Find Faces")
+        find_btn.setProperty("role", "faceAction")
+        find_btn.setMinimumSize(100, 33)
+        find_btn.clicked.connect(lambda *_: self.find_faces_pressed.emit())
+        self.buttons["FindFacesButton"] = find_btn
+        outer.addWidget(find_btn)
+
         self.buttons["SwapFacesButton"] = IconButton(
             PARAMETER_BY_NAME["SwapFaces"], callback=lambda *_: self.toggle_swap_faces.emit(),
         )
+        self.buttons["SwapFacesButton"].setProperty("role", "faceAction")
         outer.addWidget(self.buttons["SwapFacesButton"])
+
+        clear_btn = QPushButton("Clear Faces")
+        clear_btn.setProperty("role", "faceAction")
+        clear_btn.setMinimumSize(100, 33)
+        clear_btn.clicked.connect(lambda *_: self.clear_faces_pressed.emit())
+        self.buttons["ClearFacesButton"] = clear_btn
+        outer.addWidget(clear_btn)
+
+        self.buttons["AudioButton"] = IconButton(
+            PARAMETER_BY_NAME["Audio"], callback=lambda *_: self.toggle_audio.emit()
+        )
+        self.buttons["AudioButton"].setProperty("role", "faceAction")
+        outer.addWidget(self.buttons["AudioButton"])
+
+        self.volume_slider = DefaultAwareSlider(Qt.Horizontal, 100)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(100)
+        self.volume_slider.setFixedWidth(130)
+        self.volume_slider.setToolTip("Playback volume: 100%")
+        self.volume_slider.valueChanged.connect(self._on_volume_changed)
+        outer.addWidget(self.volume_slider)
+
+        self.volume_icon = QLabel("🔊")
+        self.volume_icon.setToolTip("Playback volume: 100%")
+        self.volume_icon.setAlignment(Qt.AlignCenter)
+        self.volume_icon.setFixedWidth(24)
+        outer.addWidget(self.volume_icon)
 
         self.buttons["SaveImageButton"] = IconButton(
             PARAMETER_BY_NAME["SaveImageButton"], callback=lambda *_: self.save_image.emit()
         )
+        self.buttons["SaveImageButton"].setProperty("role", "faceAction")
         outer.addWidget(self.buttons["SaveImageButton"])
 
         outer.addStretch()

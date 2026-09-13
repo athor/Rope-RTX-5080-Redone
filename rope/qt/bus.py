@@ -19,6 +19,7 @@ class Bus(QObject):
     set_stop = Signal(int)
     perf_test = Signal(bool)
     auto_swap = Signal()
+    audio_volume_changed = Signal(float)
 
     # VideoManager -> GUI
     frame_ready = Signal(object, bool)

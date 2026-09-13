@@ -14,12 +14,14 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtGui import QColor, QDoubleValidator, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QSlider,
+    QStyle,
+    QStyleOptionSlider,
     QWidget,
 )
 
@@ -28,6 +30,39 @@ from rope.qt.parameters import SliderParam
 
 def _is_integral(p: SliderParam) -> bool:
     return float(p.inc).is_integer() and float(p.min).is_integer() and float(p.max).is_integer()
+
+
+class DefaultAwareSlider(QSlider):
+    """Slider with a discreet handle light when value differs from default."""
+
+    def __init__(self, orientation, default_value: int = 0, parent=None):
+        super().__init__(orientation, parent)
+        self._default_value = int(default_value)
+
+    def setDefaultValue(self, value: int) -> None:
+        self._default_value = int(value)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self.value() == self._default_value:
+            return
+        option = QStyleOptionSlider()
+        self.initStyleOption(option)
+        rect = self.style().subControlRect(
+            QStyle.CC_Slider,
+            option,
+            QStyle.SC_SliderHandle,
+            self,
+        )
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(220, 238, 255, 65))
+        painter.drawEllipse(rect.center(), 4, 4)
+        painter.setBrush(QColor("#E7F4FF"))
+        painter.drawEllipse(rect.center(), 2, 2)
+        painter.end()
 
 
 class ParameterSlider(QWidget):
@@ -55,7 +90,8 @@ class ParameterSlider(QWidget):
 
         # Slider operates on int positions = round((value - min) / inc).
         self._steps = max(1, int(round((param.max - param.min) / param.inc)))
-        self._slider = QSlider(Qt.Horizontal)
+        default_pos = self._value_to_pos(param.default)
+        self._slider = DefaultAwareSlider(Qt.Horizontal, default_pos)
         self._slider.setRange(0, self._steps)
         self._slider.setSingleStep(1)
         self._slider.setPageStep(max(1, self._steps // 10))

@@ -8,6 +8,7 @@ from pathlib import Path
 # belt-and-braces set_default_logger_severity(3) call below for the
 # case where ORT was imported by some other side-effect import first.
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from rope.qt.bus import bus
@@ -110,6 +111,7 @@ def run(skip_backend: bool = False) -> int:
         # Enable Audio in the toggle row; MainWindow._on_preload_models),
         # so the app starts instantly and engines build against whatever
         # backend / thread count the user has actually selected.
+        QTimer.singleShot(0, window.start_source_face_indexing)
 
     # Show the startup splash in the preview. Staged last (after the
     # late saved-params re-apply above) so any startup frame request

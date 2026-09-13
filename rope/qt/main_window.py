@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import os
 import time
@@ -52,6 +53,7 @@ from rope.qt.widgets.embedding_merge_dialog import (
 )
 from rope.qt.widgets.text import Text
 from rope.qt.widgets.vram_indicator import VRAMIndicator
+from rope import MediaCache
 
 
 SAVED_PARAMETERS_JSON = "saved_parameters.json"
@@ -97,6 +99,8 @@ def _cosine_similarity_pct(v1: np.ndarray, v2: np.ndarray) -> float:
 
 
 class MainWindow(QMainWindow):
+    source_face_indexed = Signal(str, object, object, int)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Rope")
@@ -136,6 +140,11 @@ class MainWindow(QMainWindow):
         self._found_faces: list[dict] = []
         self._source_face_embeddings: dict[str, np.ndarray] = {}
         self._selected_source_paths: list[str] = []
+        self._source_face_index_generation = 0
+        self._source_face_index_pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="source-face-index"
+        )
+        self.source_face_indexed.connect(self._on_source_face_indexed)
         # Active merged embedding from the embeddings pane: when set,
         # _on_found_face_clicked uses it instead of combining the
         # source-faces selection. Cleared whenever the source-faces
@@ -312,9 +321,9 @@ class MainWindow(QMainWindow):
         self.main_splitter.setChildrenCollapsible(True)
         self.main_splitter.setHandleWidth(3)
 
-        # Left pane (vertical splitter: videos + faces)
-        self.left_splitter = QSplitter(Qt.Vertical)
-        self.left_splitter.setChildrenCollapsible(True)
+        # Pearl layout: target media and source faces side by side.
+        self.left_splitter = QSplitter(Qt.Horizontal)
+        self.left_splitter.setChildrenCollapsible(False)
         self.left_splitter.setHandleWidth(3)
         self._videos_panel = TargetMediaPanel(self.settings.source_videos)
         self._faces_panel = SourceFacesPanel(self.settings.source_faces)
@@ -444,6 +453,9 @@ class MainWindow(QMainWindow):
         # again without it being in the wrong state.
         bus.stop_play.connect(self._on_vm_stopped)
         cp.toggle_audio.connect(lambda: self._toggle_control("AudioButton"))
+        cp.volume_changed.connect(
+            lambda value: bus.audio_volume_changed.emit(float(value) / 100.0)
+        )
         cp.toggle_mask_view.connect(lambda: self._toggle_control("MaskViewButton"))
         cp.toggle_swap_faces.connect(self._on_toggle_swap_faces)
         cp.find_faces_pressed.connect(self._on_find_faces)
@@ -613,7 +625,11 @@ class MainWindow(QMainWindow):
         the center-pane Audio / MaskView buttons (and any future toggle
         wired via cp.toggle_*)."""
         prev = bool(self._control.get(name, False))
-        self._control[name] = not prev
+        value = not prev
+        self._control[name] = value
+        btn = self._center_pane.buttons.get(name)
+        if btn is not None and hasattr(btn, "set"):
+            btn.set(value, request_frame=False)
         bus.control_changed.emit(dict(self._control))
         self._refresh_current_frame()
 
@@ -633,7 +649,10 @@ class MainWindow(QMainWindow):
         coord = getattr(self, "_coordinator", None) or getattr(self, "_coordinator_ref", None)
         return getattr(coord, "models", None) if coord is not None else None
 
-    def _detect_and_recognize(self, rgb: np.ndarray, *, max_num: int = 20):
+    def _detect_and_recognize(
+        self, rgb: np.ndarray, *, max_num: int = 20, report_errors: bool = True,
+        wide_thumbnail: bool = False,
+    ):
         """Run detect + recognize on an RGB HxWx3 uint8 numpy frame.
 
         Returns a list of (embedding (512,), thumbnail (HxWx3 uint8 RGB)).
@@ -658,7 +677,8 @@ class MainWindow(QMainWindow):
         try:
             kpss = models.run_detect(img_chw, detect_mode, max_num=max_num, score=detect_score, input_size=detect_input_size)
         except Exception as exc:
-            self._tooltip_label.setText(f"Find Faces: detect failed ({exc})")
+            if report_errors:
+                self._tooltip_label.setText(f"Find Faces: detect failed ({exc})")
             return []
 
         out = []
@@ -673,8 +693,40 @@ class MainWindow(QMainWindow):
                 thumb = cropped.cpu().numpy().astype(np.uint8)
             except Exception:
                 thumb = np.zeros((112, 112, 3), dtype=np.uint8)
+            if wide_thumbnail:
+                thumb = self._head_thumbnail(rgb, kps)
             out.append((np.asarray(emb, dtype=np.float32), thumb))
         return out
+
+    @staticmethod
+    def _head_thumbnail(rgb: np.ndarray, kps) -> np.ndarray:
+        """Create a display-only crop with enough margin for the whole head."""
+        points = np.asarray(kps, dtype=np.float32).reshape(-1, 2)
+        if points.size == 0 or not np.isfinite(points).all():
+            return cv2.resize(rgb, (96, 96), interpolation=cv2.INTER_AREA)
+        x_span = max(1.0, float(np.ptp(points[:, 0])))
+        y_span = max(1.0, float(np.ptp(points[:, 1])))
+        feature_span = max(x_span, y_span)
+        # Five-point landmarks span roughly half of the detected face.
+        # A 4x landmark span therefore yields a crop about 2x the face:
+        # the head occupies half the tile and the rest is context/margin.
+        side = max(32, int(round(feature_span * 4.0)))
+        center_x = float(np.mean(points[:, 0]))
+        center_y = float(np.mean(points[:, 1])) - feature_span * 0.25
+        x1 = int(round(center_x - side / 2))
+        y1 = int(round(center_y - side / 2))
+        x2, y2 = x1 + side, y1 + side
+        height, width = rgb.shape[:2]
+        crop = rgb[max(0, y1):min(height, y2), max(0, x1):min(width, x2)]
+        top, left = max(0, -y1), max(0, -x1)
+        bottom, right = max(0, y2 - height), max(0, x2 - width)
+        if crop.size == 0:
+            return cv2.resize(rgb, (96, 96), interpolation=cv2.INTER_AREA)
+        if top or bottom or left or right:
+            crop = cv2.copyMakeBorder(
+                crop, top, bottom, left, right, cv2.BORDER_REPLICATE
+            )
+        return cv2.resize(crop, (96, 96), interpolation=cv2.INTER_AREA)
 
     def _on_find_faces(self) -> None:
         # Run detect+recognize on the currently displayed preview frame
@@ -1029,7 +1081,55 @@ class MainWindow(QMainWindow):
         self.settings.source_faces = path
         self.settings.save()
         self._faces_panel.set_folder(path)
+        self.start_source_face_indexing()
         self._tooltip_label.setText(f"Loaded {self._faces_panel.list.count()} face images")
+
+    def start_source_face_indexing(self) -> None:
+        """Build Pearl-style aligned thumbnails in a background worker."""
+        if self._get_models() is None:
+            return
+        self._source_face_index_generation += 1
+        generation = self._source_face_index_generation
+        pending = []
+        for path in self._faces_panel.paths():
+            cached = MediaCache.load_face(path)
+            if cached is None:
+                pending.append(path)
+                continue
+            thumb, emb = cached
+            self._source_face_embeddings[path] = np.asarray(emb, dtype=np.float32)
+            self._faces_panel.set_thumbnail(path, thumb)
+        if self._source_face_embeddings:
+            self._update_session_mean_embedding()
+        if pending:
+            self._source_face_index_pool.submit(self._index_source_faces, pending, generation)
+
+    def _index_source_faces(self, paths: list[str], generation: int) -> None:
+        for path in paths:
+            if generation != self._source_face_index_generation:
+                return
+            try:
+                bgr = cv2.imread(path)
+                if bgr is None:
+                    continue
+                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                results = self._detect_and_recognize(
+                    rgb, max_num=1, report_errors=False, wide_thumbnail=True
+                )
+                if not results:
+                    continue
+                emb, thumb = results[0]
+                MediaCache.store_face(path, thumb, emb)
+                self.source_face_indexed.emit(path, thumb, emb, generation)
+            except Exception as exc:
+                print(f"[main_window] source-face indexing failed for {path}: {exc}")
+
+    @Slot(str, object, object, int)
+    def _on_source_face_indexed(self, path, thumb, emb, generation) -> None:
+        if generation != self._source_face_index_generation:
+            return
+        self._source_face_embeddings[path] = np.asarray(emb, dtype=np.float32)
+        self._faces_panel.set_thumbnail(path, thumb)
 
     def _on_target_media_clicked(self, path: str) -> None:
         suffix = path.lower().rsplit(".", 1)[-1] if "." in path else ""
@@ -1109,6 +1209,11 @@ class MainWindow(QMainWindow):
     def _compute_source_embedding(self, path: str):
         """Run detect+recognize on a source-face image file. Returns 512-d
         np.ndarray on success, None on failure."""
+        cached = MediaCache.load_face(path)
+        if cached is not None:
+            thumb, emb = cached
+            self._faces_panel.set_thumbnail(path, thumb)
+            return np.asarray(emb, dtype=np.float32)
         models = self._get_models()
         if models is None:
             return None
@@ -1119,10 +1224,12 @@ class MainWindow(QMainWindow):
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         except Exception:
             return None
-        results = self._detect_and_recognize(rgb, max_num=1)
+        results = self._detect_and_recognize(rgb, max_num=1, wide_thumbnail=True)
         if not results:
             return None
-        emb, _thumb = results[0]
+        emb, thumb = results[0]
+        MediaCache.store_face(path, thumb, emb)
+        self._faces_panel.set_thumbnail(path, thumb)
         return emb
 
     def _update_session_mean_embedding(self) -> None:
@@ -1191,7 +1298,8 @@ class MainWindow(QMainWindow):
         # VRAM indicator anchored bottom-right. Updates flow in via
         # bus.vram_updated, which the coordinator polls on its idle tick.
         self._static_widgets["vram_indicator"] = VRAMIndicator()
-        self._static_widgets["vram_indicator"].setFixedSize(200, 20)
+        self._static_widgets["vram_indicator"].setMinimumWidth(260)
+        self._static_widgets["vram_indicator"].setFixedHeight(20)
         bus.vram_updated.connect(self._static_widgets["vram_indicator"].set)
         layout.addWidget(self._static_widgets["vram_indicator"])
         root_layout.addWidget(bar)
@@ -1199,6 +1307,8 @@ class MainWindow(QMainWindow):
     # ----- Settings persistence ---------------------------------------------------
 
     def closeEvent(self, event) -> None:
+        self._source_face_index_generation += 1
+        self._source_face_index_pool.shutdown(wait=False, cancel_futures=True)
         geom = self.geometry()
         self.settings.dock_win_geom = [geom.width(), geom.height(), geom.x(), geom.y()]
         self.settings.splitter_main_sizes = list(self.main_splitter.sizes())
@@ -1483,14 +1593,29 @@ class MainWindow(QMainWindow):
             except OSError as exc:
                 QMessageBox.warning(self, "Save failed", str(exc))
         elif action == "load":
-            values = load_params(SAVED_PARAMETERS_JSON)
+            initial = str(Path(SAVED_PARAMETERS_JSON).resolve().parent)
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Load Rope Parameters",
+                initial,
+                "Rope parameter profiles (*.json);;All files (*)",
+            )
+            if not path:
+                return
+            values = load_params(path)
             if not values:
-                self._tooltip_label.setText("No saved_parameters.json found")
+                QMessageBox.warning(
+                    self,
+                    "Load failed",
+                    "This file contains no valid Rope parameters.",
+                )
                 return
             self._params_pane.apply_values(values, emit=True)
             # apply_values(emit=True) routes through _on_params_changed
             # which already calls _refresh_current_frame.
-            self._tooltip_label.setText(f"Loaded {len(values)} parameters")
+            self._tooltip_label.setText(
+                f"Loaded {len(values)} parameters from {Path(path).name}"
+            )
         elif action == "default":
             self._params_pane.load_defaults(emit=True)
             self._tooltip_label.setText("Parameters reset to defaults")

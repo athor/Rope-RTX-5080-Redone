@@ -191,6 +191,12 @@ def _open_gpu_decoder(file_path):
     """Try PyNvVideoCodec, then torchcodec. Returns the adapter on success
     or None if no GPU decoder can be opened for this file. Logs once per
     failed backend so the user sees which fallback they're in."""
+    # PyNvVideoCodec 2.1.0 can terminate the entire Windows process with
+    # 0xc0000094 while constructing SimpleDecoder for otherwise valid media.
+    # A native integer divide-by-zero cannot be caught by Python, so use the
+    # safe torchcodec/PyAV fallbacks on Windows. Face processing remains CUDA.
+    if sys.platform == 'win32':
+        return None
     if _NVC_AVAILABLE:
         try:
             return _NvcGpuDecoder(file_path)
@@ -340,6 +346,7 @@ class MediaPlayer:
         self._audio_start_dac_time = None  # sounddevice time at audio start
         self._audio_start_seek_seconds = 0.0  # PTS of first sample at start
         self._audio_enabled = False
+        self._volume = 1.0
 
         # Position tracking: the "next frame number to decode" — updated by
         # the decoder thread on each successful decode and reset by seek().
@@ -474,6 +481,10 @@ class MediaPlayer:
                     daemon=True,
                 )
                 self._audio_thread.start()
+
+    def set_volume(self, volume):
+        """Set playback gain without reopening or resynchronizing audio."""
+        self._volume = max(0.0, min(1.0, float(volume)))
 
     def stop_playback(self, _join_timeout=0.5):
         """Pause: tell decode threads to bail, stop audio stream. Position
@@ -674,7 +685,13 @@ class MediaPlayer:
 
         def _callback(outdata, frames, time_info, status):
             samples = self._audio_ring.read(frames)
-            outdata[:] = samples
+            gain = self._volume
+            if gain >= 1.0:
+                outdata[:] = samples
+            elif gain <= 0.0:
+                outdata.fill(0)
+            else:
+                outdata[:] = (samples * gain).astype(np.int16)
             # Capture the DAC time of the first sample we hand off — used
             # by get_audio_position() to compute current playback time.
             if self._audio_start_dac_time is None:

@@ -159,6 +159,7 @@ class VideoManager():
         #Video related
         self.capture = []                   # cv2 video (legacy; only used by load_target_image)
         self.player = None                  # MediaPlayer for current video file
+        self.audio_volume = 1.0             # playback gain, 0.0 .. 1.0
         self.is_video_loaded = False        # flag for video loaded state
         self.video_frame_total = None       # length of currently loaded video
         self.play = False                   # flag for the play button toggle
@@ -718,6 +719,11 @@ class VideoManager():
     def assign_found_faces(self, found_faces):
         self.found_faces = found_faces
 
+    def set_audio_volume(self, volume):
+        self.audio_volume = max(0.0, min(1.0, float(volume)))
+        if self.player is not None:
+            self.player.set_volume(self.audio_volume)
+
 
     def load_target_video( self, file ):
         # If we already have a player open, release it cleanly.
@@ -737,6 +743,7 @@ class VideoManager():
         self.video_file = file
         try:
             self.player = MediaPlayer(file)
+            self.player.set_volume(self.audio_volume)
         except Exception as e:
             print("Cannot open file: ", file, '(', e, ')')
             self.is_video_loaded = False
