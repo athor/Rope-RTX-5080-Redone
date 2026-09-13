@@ -2,7 +2,7 @@
 
 All notable changes made by the **Rope RTX 5080 Redone** fork are documented here.
 
-## Unreleased
+## 1.0.0 - 2026-09-13
 
 ### GPU and runtime compatibility
 

@@ -34,7 +34,7 @@ Open Command Prompt and run:
 
 ```bat
 cd /d C:\ai
-git clone -b codex/rope-bronze-improvements https://github.com/athor/Rope-RTX-5080-Redone.git "Rope RTX 5080 Redone"
+git clone https://github.com/athor/Rope-RTX-5080-Redone.git "Rope RTX 5080 Redone"
 cd /d "C:\ai\Rope RTX 5080 Redone"
 ```
 
@@ -53,7 +53,7 @@ The dependency lock installs the CUDA-enabled PyTorch build required by this bra
 
 ### 4. Install the models
 
-1. Download the Rope-Bronze model archive from the [official Rope releases](https://github.com/Hillobar/Rope/releases).
+1. Download `models.zip` from this fork's [latest release](https://github.com/athor/Rope-RTX-5080-Redone/releases/latest).
 2. Extract it.
 3. Put the model files inside:
 
