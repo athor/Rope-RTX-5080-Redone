@@ -1,3 +1,4 @@
+<img width="3840" height="2099" alt="red" src="https://github.com/user-attachments/assets/d591199f-9773-4930-934f-ef28f66a6596" />
 # Rope RTX 5080 Redone
 
 Windows-focused fork of [Hillobar/Rope](https://github.com/Hillobar/Rope), based on the `Rope-Bronze` branch.
