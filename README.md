@@ -89,8 +89,9 @@ The first face-folder load builds a local cache and can take a little while. Lat
 5. Optionally choose **Auto Low** for a lighter rendering preset or **Auto High** for additional fidelity, masks and moderate restoration, then adjust as needed. These presets keep performance settings unchanged; High can still be slower because it adds processing. Use **Save Params** to keep the result.
 6. Enable **Swap Faces** and press Play.
 
-**Delete Image** moves selected source portraits from Faces to the Recycle Bin. 
-**Delete Video** moves the selected video from Videos. 
+**Delete Image** moves selected source portraits from Faces to the Recycle Bin.
+
+**Delete Video** moves the selected video from Videos to the Recycle Bin.
 
 Both actions require confirmation, and deletion is blocked during recording.
 
