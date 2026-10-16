@@ -40,14 +40,9 @@ During Python installation, enable **Add Python to PATH**.
 ### 2. Download this fork
 
 Open Command Prompt and run:
-
-```bat
-cd /d C:\ai
-git clone https://github.com/athor/Rope-RTX-5080-Redone.git "Rope RTX 5080 Redone"
-cd /d "C:\ai\Rope RTX 5080 Redone"
 ```
-
-You may replace `C:\ai` with another folder.
+git clone https://github.com/athor/Rope-RTX-5080-Redone.git "Rope RTX 5080 Redone"
+```
 
 ### 3. Create the Python environment
 
@@ -67,7 +62,7 @@ The dependency lock installs the CUDA-enabled PyTorch build required by this bra
 3. Put the model files inside:
 
 ```text
-C:\ai\Rope RTX 5080 Redone\models
+Rope RTX 5080 Redone\models
 ```
 
 The folder must directly contain files such as `det_10g.onnx`, `w600k_r50.onnx` and `inswapper_128.fp16.onnx`, not another nested `models` folder.
@@ -94,12 +89,15 @@ The first face-folder load builds a local cache and can take a little while. Lat
 5. Optionally choose **Auto Low** for a lighter rendering preset or **Auto High** for additional fidelity, masks and moderate restoration, then adjust as needed. These presets keep performance settings unchanged; High can still be slower because it adds processing. Use **Save Params** to keep the result.
 6. Enable **Swap Faces** and press Play.
 
-**Delete Image** moves selected source portraits from Faces to the Recycle Bin. **Delete Video** moves the selected video from Videos. Both actions require confirmation, and deletion is blocked during recording.
+**Delete Image** moves selected source portraits from Faces to the Recycle Bin. **Delete Video** moves the selected video from Videos. 
+Both actions require confirmation, and deletion is blocked during recording.
 
 ## Troubleshooting
 
-### `No module named torch`
+### First face scan is slow
+This is expected while the detector and source-face cache initialize. Subsequent scans and launches should be considerably faster. (most likely instant)
 
+### `No module named torch`
 Activate the environment and install its dependencies:
 
 ```bat
@@ -108,7 +106,6 @@ pip install -r requirements.lock.txt
 ```
 
 ### `venv\Scripts\activate.bat` is not recognized
-
 Run the commands from the repository folder, or recreate the environment:
 
 ```bat
@@ -116,18 +113,13 @@ py -3.12 -m venv venv
 ```
 
 ### Models are missing
-
 Extract the official model archive into `models`, or choose its location under **Settings → Models Folder**.
 
-### First face scan is slow
 
-This is expected while the detector and source-face cache initialize. Subsequent scans and launches should be considerably faster.
 
 ## Credits
-
 - Original project: [Hillobar/Rope](https://github.com/Hillobar/Rope)
 - This fork keeps the original project history and remains based on Rope-Bronze.
 
 ## Disclaimer and responsible use
-
 Use this software only with the necessary rights and consent. Do not create deceptive, defamatory, harmful or non-consensual content. Users are solely responsible for complying with privacy, intellectual-property and other applicable laws. This software is provided without warranty, and its authors or contributors cannot be held responsible for misuse or resulting consequences.
