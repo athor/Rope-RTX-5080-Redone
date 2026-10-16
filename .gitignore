@@ -18,6 +18,15 @@ models/
 *.safetensors
 *.plan
 
+# --- Local backups, release preparation and generated diagnostics ---
+archive/
+*.backup-*
+backup-*-environment/
+validation-*.log
+rope-*-test-*/
+models.zip
+RTX5080_Realtime*.json
+
 # --- Runtime caches (regenerable) ---
 cache/
 

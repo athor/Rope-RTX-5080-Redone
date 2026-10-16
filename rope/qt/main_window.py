@@ -13,6 +13,7 @@ replaced with real content as each stage lands.
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 from typing import Any, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +24,7 @@ from typing import Any
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QFile, QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -38,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from rope.qt.bus import bus
+from rope.qt.face_swap_presets import FACE_SWAP_PRESETS, HIGH_REQUIRED_MODELS, matching_preset
 from rope.qt.panes.center_pane import CenterPane
 from rope.qt.panes.left_pane import SourceFacesPanel, TargetMediaPanel
 from rope.qt.panes.parameters_pane import ParametersPane
@@ -474,7 +476,9 @@ class MainWindow(QMainWindow):
         cp.nudge_right.connect(lambda: self._nudge_timeline(30))
         cp.jump_to_start.connect(lambda: self._seek_to_frame(0))
         cp.preview_mode_changed.connect(self._on_preview_mode_changed)
-        cp.save_image.connect(self._on_save_image)
+        cp.delete_image.connect(self._on_delete_image)
+        cp.delete_video.connect(self._on_delete_video)
+        cp.face_swap_preset_requested.connect(self._on_face_swap_preset)
         cp.preload_pressed.connect(self._on_preload_models)
 
         # Reflect VM-emitted slider length back into the timeline.
@@ -1126,7 +1130,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str, object, object, int)
     def _on_source_face_indexed(self, path, thumb, emb, generation) -> None:
-        if generation != self._source_face_index_generation:
+        if generation != self._source_face_index_generation or not self._faces_panel.has_path(path):
             return
         self._source_face_embeddings[path] = np.asarray(emb, dtype=np.float32)
         self._faces_panel.set_thumbnail(path, thumb)
@@ -1137,7 +1141,7 @@ class MainWindow(QMainWindow):
             bus.load_target_image.emit(path)
         else:
             bus.load_target_video.emit(path)
-        # Track for Save Image's default filename derivation.
+        # Track the active media separately from the list selection.
         self._current_media_path = path
         # Reset stale state: new media means the old playhead position
         # and the old face detections no longer make sense. Found faces
@@ -1237,10 +1241,8 @@ class MainWindow(QMainWindow):
         push it to Models for the Distinctiveness slider. Also clears
         the swapper-latent cache because cached extrapolations were
         computed against the old mean."""
-        if not self._source_face_embeddings:
-            return
         embs = list(self._source_face_embeddings.values())
-        mean = np.mean(np.stack(embs, axis=0), axis=0)
+        mean = np.mean(np.stack(embs, axis=0), axis=0) if embs else None
         models = self._get_models()
         if models is None:
             return
@@ -1324,32 +1326,123 @@ class MainWindow(QMainWindow):
 
     # ----- Top-bar callbacks ------------------------------------------------------
 
-    def _on_save_image(self) -> None:
-        """Write the current preview frame to the saved-videos folder.
-
-        Mirrors the Tk GUI's save_image: derive a filename from the
-        currently-loaded media (or 'rope' if none) plus a unix timestamp,
-        cv2.imwrite as PNG. Surfaces failure via the bottom-bar tooltip
-        rather than a modal so it doesn't interrupt a recording flow.
-        """
-        rgb = self._center_pane.preview.last_frame_rgb()
-        if rgb is None:
-            self._tooltip_label.setText("Save Image: no frame in preview yet")
-            return
-        folder = self.settings.saved_videos
-        if not folder or not os.path.isdir(folder):
-            self._tooltip_label.setText("Save Image: pick a valid Output Folder first")
-            return
-        media = getattr(self, "_current_media_path", None)
-        base = os.path.splitext(os.path.basename(media))[0] if media else "rope"
-        stamp = str(int(time.time()))
-        filename = os.path.join(folder, f"{base}_{stamp}.png")
+    def _confirm_media_delete(self, title: str, paths: list[str]):
+        if self._is_recording:
+            QMessageBox.warning(self, title, "Stop recording before deleting media.")
+            return None
+        identities = {}
         try:
-            cv2.imwrite(filename, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-        except cv2.error as exc:
-            self._tooltip_label.setText(f"Save Image failed: {exc}")
+            for name in paths:
+                path = Path(name)
+                if path.is_symlink() or not path.is_file():
+                    raise OSError(f"File is missing or is not a regular file: {name}")
+                stat = path.stat()
+                identities[name] = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        except OSError as exc:
+            QMessageBox.warning(self, title, str(exc))
+            return None
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle(title)
+        dialog.setTextFormat(Qt.PlainText)
+        dialog.setText(f"Move {len(paths)} selected file(s) to the Recycle Bin?")
+        dialog.setInformativeText("\n".join(Path(p).name for p in paths[:6])
+                                  + ("\n…" if len(paths) > 6 else ""))
+        dialog.setDetailedText("\n".join(paths))
+        dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        dialog.setDefaultButton(QMessageBox.Cancel)
+        dialog.setEscapeButton(QMessageBox.Cancel)
+        return identities if dialog.exec() == QMessageBox.Yes else None
+
+    def _move_media_to_trash(self, title: str, identities) -> list[str]:
+        removed, errors = [], []
+        for name, expected in identities.items():
+            try:
+                path = Path(name)
+                stat = path.stat()
+                if path.is_symlink() or not path.is_file() or expected != (
+                        stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns):
+                    raise OSError("The file changed after confirmation. Please select it again.")
+                if not QFile.moveToTrash(name):
+                    raise OSError("Could not move the file to the Recycle Bin. It may still be in use.")
+                removed.append(name)
+            except OSError as exc:
+                errors.append(f"{name}: {exc}")
+        if errors:
+            QMessageBox.warning(self, title, "\n".join(errors))
+        return removed
+
+    def _on_delete_image(self) -> None:
+        paths = self._faces_panel.selected_paths()
+        if not paths:
+            self._tooltip_label.setText("Delete Image: select an image in Faces first.")
             return
-        self._tooltip_label.setText(f"Saved {filename}")
+        identities = self._confirm_media_delete("Delete Image", paths)
+        if identities is None:
+            return
+        self._on_scrub_started()
+        removed = self._move_media_to_trash("Delete Image", identities)
+        if not removed:
+            return
+        self._faces_panel.remove_paths(removed)
+        for path in removed:
+            self._source_face_embeddings.pop(path, None)
+        deleted = set(removed)
+        gallery = self._center_pane.found_faces_gallery
+        for i, slot in enumerate(self._found_faces):
+            if deleted.intersection(slot.get("SourceFaceAssignments") or []):
+                slot.update(SourceFaceAssignments=[], AssignedEmbedding=None,
+                            HFCorrectionGap=None, HFCorrectionGapSamples=0, HFRefinePending=False)
+                gallery.set_assigned(i, False)
+        self._selected_source_paths = [p for p in self._selected_source_paths if p not in deleted]
+        index = gallery.selected_index()
+        assigned = self._found_faces[index]["SourceFaceAssignments"] if 0 <= index < len(self._found_faces) else []
+        self._apply_assigned_highlight(assigned)
+        self._update_session_mean_embedding()
+        bus.target_faces.emit(self._found_faces)
+        self._refresh_current_frame()
+        self._tooltip_label.setText(f"Moved {len(removed)} image(s) to the Recycle Bin.")
+
+    def _on_delete_video(self) -> None:
+        paths = self._videos_panel.selected_paths()
+        mime = mimetypes.guess_type(paths[0])[0] if len(paths) == 1 else None
+        is_video = len(paths) == 1 and (Path(paths[0]).suffix.lower() in {
+            ".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v",
+        } or bool(mime and mime.startswith("video/")))
+        if not is_video:
+            self._tooltip_label.setText("Delete Video: select a video in Videos first.")
+            return
+        path = paths[0]
+        identities = self._confirm_media_delete("Delete Video", paths)
+        if identities is None:
+            return
+        active = path == getattr(self, "_current_media_path", None)
+        if active:
+            self._on_scrub_started()
+            coord = getattr(self, "_coordinator", None)
+            vm = getattr(coord, "vm", None)
+            try:
+                if vm is not None:
+                    vm.unload_target_media()
+            except Exception as exc:
+                QMessageBox.warning(self, "Delete Video", f"Could not release the video: {exc}")
+                return
+        removed = self._move_media_to_trash("Delete Video", identities)
+        if not removed:
+            if active:
+                self._on_target_media_clicked(path)
+            return
+        self._videos_panel.remove_paths(removed)
+        if active:
+            self._current_media_path = None
+            self._markers = []
+            bus.markers_changed.emit([])
+            self._center_pane.timeline.set_length(0)
+            self._center_pane.timeline.set(0)
+            self._on_clear_faces()
+            QTimer.singleShot(0, lambda: self.show_splash()
+                              if getattr(self, "_current_media_path", None) is None else None)
+        self._tooltip_label.setText(f"Moved {Path(path).name} to the Recycle Bin.")
 
     def _on_pick_output_folder(self, *_args) -> None:
         start = self.settings.saved_videos or ""
@@ -1517,7 +1610,38 @@ class MainWindow(QMainWindow):
         if values:
             self._params_pane.apply_values(values, emit=True)
 
+    def _on_face_swap_preset(self, name: str) -> None:
+        preset = FACE_SWAP_PRESETS.get(name)
+        if preset is None:
+            return
+        if self._is_recording:
+            self._tooltip_label.setText("Stop recording before applying an Auto preset.")
+            return
+        if name == "high":
+            folder = Path(self.settings.models_folder) if self.settings.models_folder else (
+                Path(__file__).resolve().parents[2] / "models"
+            )
+            missing = [filename for filename in HIGH_REQUIRED_MODELS
+                       if not (folder / filename).is_file()]
+            if missing:
+                QMessageBox.warning(self, "Auto High", "Required models are missing:\n"
+                                    + "\n".join(missing))
+                return
+        # Fresh slots keep in-flight workers from repopulating the new profile's
+        # correction cache through references to old slots. Face assignments stay.
+        self._found_faces = [dict(slot, HFCorrectionGap=None,
+                                  HFCorrectionGapSamples=0, HFRefinePending=False)
+                             for slot in self._found_faces]
+        bus.target_faces.emit(self._found_faces)
+        # Bulk application emits one complete snapshot and refreshes once.
+        self._params_pane.apply_values(dict(preset), emit=True)
+        label = "Auto High" if name == "high" else "Auto Low"
+        self._tooltip_label.setText(
+            f"{label} applied (face-swap preset). Adjust as needed; Save Params to keep it."
+        )
+
     def _on_params_changed(self, snapshot: dict) -> None:
+        self._center_pane.set_face_swap_preset_state(matching_preset(snapshot))
         bus.parameters_changed.emit(snapshot)
         # Settings-level toggles that affect Models internals — apply
         # them eagerly so the next swap call sees the new state.

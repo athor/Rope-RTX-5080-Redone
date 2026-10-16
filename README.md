@@ -10,13 +10,21 @@ This fork improves RTX 50-series compatibility, restores the practical Pearl-sty
 - Pearl-style side-by-side **Videos** and **Faces** columns.
 - Automatic source-face detection, wider head crops and persistent thumbnail/embedding cache.
 - Safer Windows video playback after native `PyNvVideoCodec` crashes.
-- Functional audio volume control.
+- Safe Delete Image / Delete Video actions with confirmation and Windows Recycle Bin support.
+- Clearly visible neon green media selection borders.
+- Audio enabled by default with functional volume control starting at 50%.
+- Auto Low / Auto High face-swap rendering presets.
+- Reduced background CPU usage from interface telemetry.
 - Clear active states for **Swap Faces** and **Enable Audio**.
 - Improved action buttons, tabs, labels, VRAM display and sliders.
 - Working JSON file picker for **Load Params**.
 - RTX 50-series compatible Python/PyTorch/CUDA dependency stack.
 
-See [CHANGELOG.md](CHANGELOG.md) for details.
+Current release: **v1.0.1**. See [CHANGELOG.md](CHANGELOG.md) for details.
+
+### Updating from v1.0.0
+
+Close Rope and update the source code. Keep your existing `venv`, `models`, `data.json` and `saved_parameters.json`; model files and dependency versions have not changed. No model download is needed for an existing installation.
 
 ## Simple Windows installation
 
@@ -54,7 +62,7 @@ The dependency lock installs the CUDA-enabled PyTorch build required by this bra
 
 ### 4. Install the models
 
-1. Download `models.zip` from this fork's [latest release](https://github.com/athor/Rope-RTX-5080-Redone/releases/latest).
+1. Download `models.zip` from this fork's [existing model archive](https://github.com/athor/Rope-RTX-5080-Redone/releases/download/v1.0.0/models.zip).
 2. Extract it.
 3. Put the model files inside:
 
@@ -83,7 +91,10 @@ The first face-folder load builds a local cache and can take a little while. Lat
 2. Pick the source portraits in the **Faces** column.
 3. Click **Find Faces**.
 4. Select a detected target face and assign the desired source face.
-5. Enable **Swap Faces** and press Play.
+5. Optionally choose **Auto Low** for a lighter rendering preset or **Auto High** for additional fidelity, masks and moderate restoration, then adjust as needed. These presets keep performance settings unchanged; High can still be slower because it adds processing. Use **Save Params** to keep the result.
+6. Enable **Swap Faces** and press Play.
+
+**Delete Image** moves selected source portraits from Faces to the Recycle Bin. **Delete Video** moves the selected video from Videos. Both actions require confirmation, and deletion is blocked during recording.
 
 ## Troubleshooting
 

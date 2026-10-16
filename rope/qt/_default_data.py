@@ -8,7 +8,7 @@ DEFAULT_DATA = {
 'AddMarkerButtonState':           False,
 'AudioDisplay':             'text', 
 'AudioInfoText':             'ENABLE REAL-TIME AUDIO:\nAdds audio from the input video during preview playback. If you are unable to maintain the input video frame rate, the audio will lag.',   
-'AudioState':               False,
+'AudioState':               True,
 'AudioText':                'Enable Audio',      
 'AutoSwapState':            False,
 'ClearFacesDisplay':        'text', 

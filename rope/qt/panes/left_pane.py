@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QSizePolicy,
+    QStyle,
     QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
@@ -131,7 +132,7 @@ _ASSIGNED_ROLE = Qt.UserRole + 100
 
 
 class _AssignedBorderDelegate(QStyledItemDelegate):
-    """Paints a gold border over items flagged via _ASSIGNED_ROLE.
+    """Paints a neon green selection border and a gold assigned-source border.
 
     Stacked on top of Qt's default painting (selection background,
     icon, text) so the border survives Qt's selection styling — the
@@ -143,16 +144,20 @@ class _AssignedBorderDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
-        if not bool(index.data(_ASSIGNED_ROLE)):
+        selected = bool(option.state & QStyle.State_Selected)
+        assigned = bool(index.data(_ASSIGNED_ROLE))
+        if not selected and not assigned:
             return
         painter.save()
         try:
-            pen = QPen(self.BORDER_COLOR, self.BORDER_WIDTH)
-            painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
-            # Inset by half-pen so the stroke isn't clipped at the cell edge.
-            inset = self.BORDER_WIDTH // 2 + 1
-            painter.drawRect(option.rect.adjusted(inset, inset, -inset, -inset))
+            if selected:
+                painter.setPen(QPen(QColor("#39FF14"), 3))
+                painter.drawRect(option.rect.adjusted(2, 2, -2, -2))
+            if assigned:
+                painter.setPen(QPen(self.BORDER_COLOR, self.BORDER_WIDTH))
+                inset = 6 if selected else 2
+                painter.drawRect(option.rect.adjusted(inset, inset, -inset, -inset))
         finally:
             painter.restore()
 
@@ -275,6 +280,26 @@ class _ThumbListMixin:
             for i in range(self.list.count())
             if self.list.item(i).data(Qt.UserRole)
         ]
+
+    def has_path(self, path: str) -> bool:
+        return path in self._items_by_path
+
+    def selected_paths(self) -> list[str]:
+        return [item.data(Qt.UserRole) for item in self.list.selectedItems()
+                if item.data(Qt.UserRole)]
+
+    def remove_paths(self, paths) -> None:
+        """Remove only successfully deleted files; late thumbnails are ignored."""
+        block = self.list.blockSignals(True)
+        try:
+            for path in paths:
+                item = self._items_by_path.pop(path, None)
+                if item is not None:
+                    self.list.takeItem(self.list.row(item))
+                self._selected_paths.discard(path)
+                self._assigned_paths.discard(path)
+        finally:
+            self.list.blockSignals(block)
 
     def set_thumbnail(self, path: str, thumb) -> None:
         self._on_thumb_ready(path, thumb, 0)

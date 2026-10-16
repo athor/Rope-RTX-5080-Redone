@@ -9,9 +9,8 @@ class Coordinator(QObject):
 
     - Connects Bus signals (emitted by widgets in later phases) to
       VideoManager methods.
-    - Drives vm.process() via a QTimer(interval=0) — Qt's idle pump,
-      equivalent to the old gui.after(1, coordinator) at ~1 kHz.
-    - Coalesces rapid scrub frame requests.
+    - Samples queue-depth and VRAM telemetry every 50 ms.
+    - Forwards scrub requests to the VideoManager worker.
 
     VideoManager emits bus.slider_length_changed / bus.stop_play directly
     from its load and stop paths, so the coordinator no longer needs an
@@ -48,18 +47,21 @@ class Coordinator(QObject):
             self.vm.set_frame_callback(self._on_vm_frame)
 
         self._process_timer = QTimer(self)
-        self._process_timer.setInterval(0)
+        # Frame delivery and playback are driven by VM workers. A zero
+        # interval here spins the GUI thread continuously for telemetry only.
+        self._process_timer.setInterval(50)
         self._process_timer.timeout.connect(self._tick)
-        self._process_timer.start()
+        if self.vm is not None:
+            self._process_timer.start()
 
         # VRAM updates are event-driven: Models.__setattr__ flips
         # models.vram_dirty whenever a model attribute is assigned
-        # (load or unload). _tick polls that flag — no periodic timer
-        # needed, no QLabel repaints between actual VRAM changes.
+        # (load or unload). _tick samples that flag; the memory query and
+        # label repaint only happen after an actual change.
 
         # Throttle for queue-depth diagnostics — emit at most ~10 Hz so
         # the HUD has a steady sample rate without spamming the bus on
-        # every 1 kHz tick.
+        # every telemetry tick.
         self._last_qdepth_emit: float = 0.0
 
     def _connect_bus_to_vm(self):

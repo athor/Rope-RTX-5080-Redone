@@ -12,7 +12,7 @@ Mirrors rope/GUI.py lines ~385-520. Layout:
     +-------------------------------------------------+
     |  Timeline + frame entry + markers               |  fixed height
     +-------------------------------------------------+
-    | SaveImage |  TLBeg TLLeft Record Play TLRight  |
+    | Delete Image / Delete Video | transport       |
     |           |  AddMrk DelMrk PrevMrk NextMrk      |  media buttons
     +-------------------------------------------------+
 """
@@ -62,7 +62,7 @@ class CenterPane(QFrame):
         add_marker() / del_marker() / prev_marker() / next_marker()
         frame_requested(int)
         scrub_started() / scrub_ended()
-        save_image()
+        delete_image() / delete_video()
     """
 
     toggle_audio = Signal()
@@ -80,7 +80,9 @@ class CenterPane(QFrame):
     frame_requested = Signal(int)
     scrub_started = Signal()
     scrub_ended = Signal()
-    save_image = Signal()
+    delete_image = Signal()
+    delete_video = Signal()
+    face_swap_preset_requested = Signal(str)
     find_faces_pressed = Signal()
     clear_faces_pressed = Signal()
     toggle_swap_faces = Signal()
@@ -184,6 +186,16 @@ class CenterPane(QFrame):
         lay.addWidget(self.preview_mode, stretch=1)
 
         return row
+
+    def set_face_swap_preset_state(self, preset: str | None) -> None:
+        for name, value in (("AutoLowButton", "low"), ("AutoHighButton", "high")):
+            button = self.buttons[name]
+            state = "on" if preset == value else "off"
+            if button.property("state") != state:
+                button.setProperty("state", state)
+                button.style().unpolish(button)
+                button.style().polish(button)
+                button.update()
 
     def _on_volume_changed(self, value: int) -> None:
         value = max(0, min(100, int(value)))
@@ -318,28 +330,63 @@ class CenterPane(QFrame):
         self.buttons["AudioButton"] = IconButton(
             PARAMETER_BY_NAME["Audio"], callback=lambda *_: self.toggle_audio.emit()
         )
+        self.buttons["AudioButton"].set(True, request_frame=False)
         self.buttons["AudioButton"].setProperty("role", "faceAction")
         outer.addWidget(self.buttons["AudioButton"])
 
-        self.volume_slider = DefaultAwareSlider(Qt.Horizontal, 100)
+        self.volume_slider = DefaultAwareSlider(Qt.Horizontal, 50)
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(100)
+        self.volume_slider.setValue(50)
         self.volume_slider.setFixedWidth(130)
-        self.volume_slider.setToolTip("Playback volume: 100%")
+        self.volume_slider.setToolTip("Playback volume: 50%")
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
         outer.addWidget(self.volume_slider)
 
         self.volume_icon = QLabel("🔊")
-        self.volume_icon.setToolTip("Playback volume: 100%")
+        self.volume_icon.setToolTip("Playback volume: 50%")
         self.volume_icon.setAlignment(Qt.AlignCenter)
         self.volume_icon.setFixedWidth(24)
         outer.addWidget(self.volume_icon)
 
-        self.buttons["SaveImageButton"] = IconButton(
-            PARAMETER_BY_NAME["SaveImageButton"], callback=lambda *_: self.save_image.emit()
-        )
-        self.buttons["SaveImageButton"].setProperty("role", "faceAction")
-        outer.addWidget(self.buttons["SaveImageButton"])
+        for name, label, signal, tip in (
+            ("DeleteImageButton", "Delete Image", self.delete_image,
+             "Move selected source images from Faces to the Recycle Bin (confirmation required)."),
+            ("DeleteVideoButton", "Delete Video", self.delete_video,
+             "Move the selected video from Videos to the Recycle Bin (confirmation required)."),
+        ):
+            button = QPushButton(label)
+            button.setProperty("role", "faceAction")
+            button.setMinimumSize(110, 33)
+            button.setToolTip(tip)
+            button.clicked.connect(lambda _checked=False, action=signal: action.emit())
+            self.buttons[name] = button
+            outer.addWidget(button)
+
+        separator = QFrame()
+        separator.setObjectName("FaceSwapPresetSeparator")
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFixedSize(1, 24)
+        separator.setStyleSheet("background-color: #707078; border: none;")
+        outer.addWidget(separator)
+
+        for name, label, preset, tip in (
+            ("AutoLowButton", "Auto Low", "low",
+             "Light face-swap preset: 128, color matching and simple borders. "
+             "No extra restoration or neural masks. Performance settings stay unchanged."),
+            ("AutoHighButton", "Auto High", "high",
+             "Detailed face-swap preset: 256, cached fidelity correction, color matching, "
+             "occlusion/background masks and 25% restoration. May be slower. "
+             "Performance settings stay unchanged."),
+        ):
+            button = QPushButton(label)
+            button.setProperty("role", "faceAction")
+            button.setMinimumSize(96, 33)
+            button.setToolTip(tip)
+            button.clicked.connect(
+                lambda _checked=False, value=preset: self.face_swap_preset_requested.emit(value)
+            )
+            self.buttons[name] = button
+            outer.addWidget(button)
 
         outer.addStretch()
 

@@ -159,7 +159,7 @@ class VideoManager():
         #Video related
         self.capture = []                   # cv2 video (legacy; only used by load_target_image)
         self.player = None                  # MediaPlayer for current video file
-        self.audio_volume = 1.0             # playback gain, 0.0 .. 1.0
+        self.audio_volume = 0.5             # playback gain, 0.0 .. 1.0
         self.is_video_loaded = False        # flag for video loaded state
         self.video_frame_total = None       # length of currently loaded video
         self.play = False                   # flag for the play button toggle
@@ -724,6 +724,60 @@ class VideoManager():
         if self.player is not None:
             self.player.set_volume(self.audio_volume)
 
+
+    def unload_target_media(self):
+        """Release the active file only after playback and scrub workers stop."""
+        if self.record:
+            raise RuntimeError("Stop recording before deleting a video.")
+        self.play = False
+        self._pacer_stop.set()
+        self._scrub_stop.set()
+        with self._scrub_cond:
+            self._scrub_queue.clear()
+            self._scrub_cond.notify_all()
+        deadline = time.monotonic() + 5.0
+        try:
+            for worker in (self._pacer_thread, self._scrub_thread):
+                if worker is not None:
+                    worker.join(timeout=max(0.0, deadline - time.monotonic()))
+                    if worker.is_alive():
+                        raise RuntimeError("Media is still processing. Please retry when idle.")
+            for slot in self.process_qs:
+                future = slot.get('Thread')
+                if future is not None and hasattr(future, 'result'):
+                    future.result(timeout=max(0.0, deadline - time.monotonic()))
+            if self.player is not None:
+                decoder_threads = (self.player._video_thread, self.player._audio_thread)
+                self.player.stop_playback(_join_timeout=2.0)
+                if any(t is not None and t.is_alive() for t in decoder_threads):
+                    self.player._video_thread, self.player._audio_thread = decoder_threads
+                    raise RuntimeError("The decoder is still busy. Please retry when idle.")
+                self.player.close()
+                self.player = None
+            if self.capture:
+                self.capture.release()
+                self.capture = []
+            self.is_video_loaded = False
+            self.is_image_loaded = False
+            self.video_file = []
+            self.target_video = []
+            self.image = None
+            self.frame_q = []
+            self.r_frame_q = []
+            self.process_qs = []
+            self.current_frame = 0
+            self.video_frame_total = 0
+            self.found_faces = []
+        finally:
+            # Keep navigation usable after success as well as a failed deletion.
+            self._pacer_stop.clear()
+            self._scrub_stop.clear()
+            self._start_pacer()
+            if not self._scrub_thread.is_alive():
+                self._scrub_thread = threading.Thread(
+                    target=self._scrub_loop, name='scrub', daemon=True,
+                )
+                self._scrub_thread.start()
 
     def load_target_video( self, file ):
         # If we already have a player open, release it cleanly.
